@@ -52,6 +52,46 @@ https://abc123.com/sale618`
 
       let result = part;
 
+// ===== 兼容旧版粗体字符 =====
+
+// 旧版数字
+const oldDigits = {
+  "𝟬":"0","𝟭":"1","𝟮":"2","𝟯":"3","𝟰":"4",
+  "𝟱":"5","𝟲":"6","𝟳":"7","𝟴":"8","𝟵":"9"
+};
+
+// 旧版大写
+const oldUpper = {
+  "𝗔":"A","𝗕":"B","𝗖":"C","𝗗":"D","𝗘":"E",
+  "𝗙":"F","𝗚":"G","𝗛":"H","𝗜":"I","𝗝":"J",
+  "𝗞":"K","𝗟":"L","𝗠":"M","𝗡":"N","𝗢":"O",
+  "𝗣":"P","𝗤":"Q","𝗥":"R","𝗦":"S","𝗧":"T",
+  "𝗨":"U","𝗩":"V","𝗪":"W","𝗫":"X","𝗬":"Y",
+  "𝗭":"Z"
+};
+
+// 旧版小写
+const oldLower = {
+  "𝗮":"a","𝗯":"b","𝗰":"c","𝗱":"d","𝗲":"e",
+  "𝗳":"f","𝗴":"g","𝗵":"h","𝗶":"i","𝗷":"j",
+  "𝗸":"k","𝗹":"l","𝗺":"m","𝗻":"n","𝗼":"o",
+  "𝗽":"p","𝗾":"q","𝗿":"r","𝘀":"s","𝘁":"t",
+  "𝘂":"u","𝘃":"v","𝘄":"w","𝘅":"x","𝘆":"y",
+  "𝘇":"z"
+};
+
+Object.entries(oldDigits).forEach(([from, to]) => {
+  result = result.split(from).join(to);
+});
+
+Object.entries(oldUpper).forEach(([from, to]) => {
+  result = result.split(from).join(to);
+});
+
+Object.entries(oldLower).forEach(([from, to]) => {
+  result = result.split(from).join(to);
+});
+
 // 1️⃣~9️⃣ 转 ❶~❾
 const emojiNums = {
   "1️⃣": "❶",
