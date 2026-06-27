@@ -1,98 +1,37 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import "./App.css";
 
-export default function NumericFontConverter() {
+const fontMap = {
+  digits: ["𝟎", "𝟏", "𝟐", "𝟑", "𝟒", "𝟓", "𝟔", "𝟕", "𝟖", "𝟗"],
+  lower: [
+    "𝐚", "𝐛", "𝐜", "𝐝", "𝐞", "𝐟", "𝐠", "𝐡", "𝐢", "𝐣", "𝐤", "𝐥", "𝐦",
+    "𝐧", "𝐨", "𝐩", "𝐪", "𝐫", "𝐬", "𝐭", "𝐮", "𝐯", "𝐰", "𝐱", "𝐲", "𝐳",
+  ],
+  upper: [
+    "𝐀", "𝐁", "𝐂", "𝐃", "𝐄", "𝐅", "𝐆", "𝐇", "𝐈", "𝐉", "𝐊", "𝐋", "𝐌",
+    "𝐍", "𝐎", "𝐏", "𝐐", "𝐑", "𝐒", "𝐓", "𝐔", "𝐕", "𝐖", "𝐗", "𝐘", "𝐙",
+  ],
+};
 
-  const fontMap = {
-    digits: [
-      "𝟎","𝟏","𝟐","𝟑","𝟒",
-      "𝟓","𝟔","𝟕","𝟖","𝟗"
-    ],
-
-    lower: [
-      "𝐚","𝐛","𝐜","𝐝","𝐞",
-      "𝐟","𝐠","𝐡","𝐢","𝐣",
-      "𝐤","𝐥","𝐦","𝐧","𝐨",
-      "𝐩","𝐪","𝐫","𝐬","𝐭",
-      "𝐮","𝐯","𝐰","𝐱","𝐲",
-      "𝐳"
-    ],
-
-    upper: [
-      "𝐀","𝐁","𝐂","𝐃","𝐄",
-      "𝐅","𝐆","𝐇","𝐈","𝐉",
-      "𝐊","𝐋","𝐌","𝐍","𝐎",
-      "𝐏","𝐐","𝐑","𝐒","𝐓",
-      "𝐔","𝐕","𝐖","𝐗","𝐘",
-      "𝐙"
-    ]
-  };
-
-  const [input, setInput] = useState(
-`活动时间：5月30日20点-6月1日24点
-
-SALE 618 OFF 50%
-
-立即领取：
-https://abc123.com/sale618`
-  );
-
-  const [copied, setCopied] = useState("");
-
-  const convertText = (text) => {
-
-    const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
-
-    const parts = text.split(urlRegex);
-
-    return parts.map((part) => {
-
-      if (part.match(urlRegex)) {
-        return part;
-      }
-
-      let result = part;
-
-// ===== 兼容旧版粗体字符 =====
-
-// 旧版数字
 const oldDigits = {
-  "𝟬":"0","𝟭":"1","𝟮":"2","𝟯":"3","𝟰":"4",
-  "𝟱":"5","𝟲":"6","𝟳":"7","𝟴":"8","𝟵":"9"
+  "𝟬": "0", "𝟭": "1", "𝟮": "2", "𝟯": "3", "𝟰": "4",
+  "𝟱": "5", "𝟲": "6", "𝟳": "7", "𝟴": "8", "𝟵": "9",
 };
 
-// 旧版大写
 const oldUpper = {
-  "𝗔":"A","𝗕":"B","𝗖":"C","𝗗":"D","𝗘":"E",
-  "𝗙":"F","𝗚":"G","𝗛":"H","𝗜":"I","𝗝":"J",
-  "𝗞":"K","𝗟":"L","𝗠":"M","𝗡":"N","𝗢":"O",
-  "𝗣":"P","𝗤":"Q","𝗥":"R","𝗦":"S","𝗧":"T",
-  "𝗨":"U","𝗩":"V","𝗪":"W","𝗫":"X","𝗬":"Y",
-  "𝗭":"Z"
+  "𝗔": "A", "𝗕": "B", "𝗖": "C", "𝗗": "D", "𝗘": "E", "𝗙": "F", "𝗚": "G",
+  "𝗛": "H", "𝗜": "I", "𝗝": "J", "𝗞": "K", "𝗟": "L", "𝗠": "M", "𝗡": "N",
+  "𝗢": "O", "𝗣": "P", "𝗤": "Q", "𝗥": "R", "𝗦": "S", "𝗧": "T", "𝗨": "U",
+  "𝗩": "V", "𝗪": "W", "𝗫": "X", "𝗬": "Y", "𝗭": "Z",
 };
 
-// 旧版小写
 const oldLower = {
-  "𝗮":"a","𝗯":"b","𝗰":"c","𝗱":"d","𝗲":"e",
-  "𝗳":"f","𝗴":"g","𝗵":"h","𝗶":"i","𝗷":"j",
-  "𝗸":"k","𝗹":"l","𝗺":"m","𝗻":"n","𝗼":"o",
-  "𝗽":"p","𝗾":"q","𝗿":"r","𝘀":"s","𝘁":"t",
-  "𝘂":"u","𝘃":"v","𝘄":"w","𝘅":"x","𝘆":"y",
-  "𝘇":"z"
+  "𝗮": "a", "𝗯": "b", "𝗰": "c", "𝗱": "d", "𝗲": "e", "𝗳": "f", "𝗴": "g",
+  "𝗵": "h", "𝗶": "i", "𝗷": "j", "𝗸": "k", "𝗹": "l", "𝗺": "m", "𝗻": "n",
+  "𝗼": "o", "𝗽": "p", "𝗾": "q", "𝗿": "r", "𝘀": "s", "𝘁": "t", "𝘂": "u",
+  "𝘃": "v", "𝘄": "w", "𝘅": "x", "𝘆": "y", "𝘇": "z",
 };
 
-Object.entries(oldDigits).forEach(([from, to]) => {
-  result = result.split(from).join(to);
-});
-
-Object.entries(oldUpper).forEach(([from, to]) => {
-  result = result.split(from).join(to);
-});
-
-Object.entries(oldLower).forEach(([from, to]) => {
-  result = result.split(from).join(to);
-});
-
-// 1️⃣~9️⃣ 转 ❶~❾
 const emojiNums = {
   "1️⃣": "❶",
   "2️⃣": "❷",
@@ -105,107 +44,132 @@ const emojiNums = {
   "9️⃣": "❾",
 };
 
-Object.entries(emojiNums).forEach(([from, to]) => {
-  result = result.split(from).join(to);
-});
+const sampleText = `活动时间：5月30日20点-6月1日24点
 
-// * 转 ✘
-result = result.split("*").join("✘");
+SALE 618 OFF 50%
 
-// 普通数字转数学粗体
-result = result.replace(/\d/g, (d) => {
-  return fontMap.digits[Number(d)] || d;
-});
+立即领取：
+https://abc123.com/sale618`;
 
-      result = result.replace(/[a-z]/g, (c) => {
-        return fontMap.lower[c.charCodeAt(0) - 97] || c;
-      });
+function replaceByMap(text, map) {
+  return Object.entries(map).reduce(
+    (result, [from, to]) => result.split(from).join(to),
+    text,
+  );
+}
 
-      result = result.replace(/[A-Z]/g, (c) => {
-        return fontMap.upper[c.charCodeAt(0) - 65] || c;
-      });
+function convertBlock(text) {
+  let result = text;
 
-      return result;
+  result = replaceByMap(result, oldDigits);
+  result = replaceByMap(result, oldUpper);
+  result = replaceByMap(result, oldLower);
+  result = replaceByMap(result, emojiNums);
+  result = result.split("*").join("✘");
 
-    }).join("");
-  };
+  result = result.replace(/\d/g, (digit) => fontMap.digits[Number(digit)] || digit);
+  result = result.replace(/[a-z]/g, (letter) => fontMap.lower[letter.charCodeAt(0) - 97] || letter);
+  result = result.replace(/[A-Z]/g, (letter) => fontMap.upper[letter.charCodeAt(0) - 65] || letter);
 
-  const output = convertText(input);
+  return result;
+}
+
+function convertText(text) {
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+
+  return text
+    .split(urlRegex)
+    .map((part) => (urlRegex.test(part) ? part : convertBlock(part)))
+    .join("");
+}
+
+export default function NumericFontConverter() {
+  const [input, setInput] = useState(sampleText);
+  const [copied, setCopied] = useState("");
+  const output = useMemo(() => convertText(input), [input]);
 
   const copyText = async () => {
-
     try {
-
       await navigator.clipboard.writeText(output);
-
-      setCopied("已复制");
-
-      setTimeout(() => {
-        setCopied("");
-      }, 1500);
-
+      setCopied("已复制到剪贴板");
     } catch {
-
-      setCopied("复制失败");
+      setCopied("复制失败，请手动复制");
     }
+
+    window.setTimeout(() => setCopied(""), 1600);
+  };
+
+  const resetText = () => {
+    setInput(sampleText);
+  };
+
+  const clearText = () => {
+    setInput("");
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-6">
+    <main className="app-shell">
+      <section className="hero-section">
+        <div className="hero-copy">
+          <p className="eyebrow">WeChat Copy Formatter</p>
+          <h1>微信文案美化工具</h1>
+          <p className="hero-subtitle">
+            数字与英文字母自动转成醒目的数学粗体，链接保持原样，适合活动文案、群公告和促销标题。
+          </p>
+        </div>
+      </section>
 
-      <div className="max-w-5xl mx-auto">
-
-        <h1 className="text-4xl font-bold mb-3">
-          微信文案粗体转换器
-        </h1>
-
-        <p className="text-gray-600 mb-8">
-          自动转换数字与英文字母，链接保持不变
-        </p>
-
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          className="w-full border rounded-2xl p-4 min-h-[180px] mb-8"
-        />
-
-        <div className="bg-white rounded-2xl border p-5">
-
-          <div className="flex justify-between items-center mb-4">
-
+      <section className="tool-grid" aria-label="转换工具">
+        <article className="panel input-panel">
+          <div className="panel-header">
             <div>
-              <h2 className="text-xl font-bold">
-                数学粗体
-              </h2>
-
-              <p className="text-gray-500 text-sm">
-                𝐀𝐁𝐂 + 𝟏𝟐𝟑
-              </p>
+              <p className="panel-kicker">输入</p>
+              <h2>原始文案</h2>
             </div>
+            <span className="count-pill">{input.length} 字</span>
+          </div>
 
-            <button
-              onClick={copyText}
-              className="bg-black text-white px-4 py-2 rounded-xl"
-            >
+          <textarea
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder="请粘贴微信群推广文案..."
+            aria-label="原始文案"
+          />
+
+          <div className="button-row">
+            <button className="danger-button" type="button" onClick={clearText}>
+              一键删除
+            </button>
+            <button className="ghost-button" type="button" onClick={resetText}>
+              恢复示例
+            </button>
+          </div>
+        </article>
+
+        <article className="panel output-panel">
+          <div className="panel-header">
+            <div>
+              <p className="panel-kicker">结果</p>
+              <h2>美化文案</h2>
+            </div>
+            <button className="copy-button" type="button" onClick={copyText}>
               一键复制
             </button>
-
           </div>
 
-          <div className="bg-gray-100 rounded-xl p-4 break-words text-lg whitespace-pre-wrap">
-            {output}
+          <div className="output-box" aria-label="转换结果">
+            {output || "转换结果会显示在这里"}
           </div>
 
-        </div>
-
-        {copied && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-black text-white px-5 py-3 rounded-xl">
-            {copied}
+          <div className="tips-row">
+            <span>链接自动保护</span>
+            <span>数字自动加粗</span>
+            <span>* 自动替换为 ✘</span>
           </div>
-        )}
+        </article>
+      </section>
 
-      </div>
-
-    </div>
+      {copied && <div className="toast">{copied}</div>}
+    </main>
   );
 }
