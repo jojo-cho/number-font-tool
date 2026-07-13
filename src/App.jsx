@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 const fontMap = {
@@ -51,29 +51,39 @@ SALE 618 OFF 50%
 立即领取：
 https://abc123.com/sale618`;
 
-const posterTemplates = {
-  apparelOrder: {
-    name: "服饰主图 + 订单截图",
-    note: "主图在左上，订单截图压在左下，三行水印铺在交接处。",
-    defaults: {
-      bgColor: "#7b5d55",
-      sizePreset: "1200x1600",
-      mainX: 32,
-      mainY: 44,
-      mainW: 76,
-      mainFit: "contain",
-      orderX: 23,
-      orderBottom: 24,
-      orderW: 79,
-      orderH: 28,
-      wmLine1: "淘宝闪购搜",
-      wmLine2: "300466",
-      wmLine3: "领外卖红包",
-      wmSize: 23,
-      wmOpacity: 30,
-      wmGap: 160,
-      wmColor: "#ffffff",
-    },
+const stitchTemplates = {
+  two: {
+    name: "两张横向拼接",
+    note: "左右各一张，适合横向对比或前后效果展示。",
+    count: 2,
+    cols: 2,
+    rows: 1,
+    width: 1600,
+    height: 900,
+    slotClass: "wide",
+    badge: "两张横拼",
+  },
+  four: {
+    name: "四张 3:4 拼接",
+    note: "上面两张，下面两张，成品仍为 3:4。",
+    count: 4,
+    cols: 2,
+    rows: 2,
+    width: 1200,
+    height: 1600,
+    slotClass: "portrait",
+    badge: "3:4 成品",
+  },
+  six: {
+    name: "六张 3:4 拼接",
+    note: "上面三张，下面三张，成品为 9:8。",
+    count: 6,
+    cols: 3,
+    rows: 2,
+    width: 1800,
+    height: 1600,
+    slotClass: "portrait",
+    badge: "9:8 成品",
   },
 };
 
@@ -235,29 +245,41 @@ function CopyFormatter({ showToast }) {
 
 function PosterComposer({ showToast }) {
   const canvasRef = useRef(null);
-  const [templateKey, setTemplateKey] = useState("apparelOrder");
-  const [controls, setControls] = useState(posterTemplates.apparelOrder.defaults);
-  const [images, setImages] = useState({ main: null, order: null });
-  const [activeSlot, setActiveSlot] = useState("main");
+  const [templateKey, setTemplateKey] = useState("two");
+  const [images, setImages] = useState(() => Array(stitchTemplates.two.count).fill(null));
+  const [activeSlot, setActiveSlot] = useState(0);
+  const [gap, setGap] = useState(0);
+  const [format, setFormat] = useState("image/png");
+  const [watermark, setWatermark] = useState({
+    enabled: true,
+    line1: "淘宝闪购搜",
+    line2: "300466",
+    line3: "领外卖红包",
+    size: 28,
+    opacity: 30,
+    groupGap: 180,
+    color: "#ffffff",
+  });
+  const [headline, setHeadline] = useState({
+    enabled: false,
+    line1: "爆品热销榜",
+    line2: "京鲜生水果",
+    size: 96,
+  });
   const [downloadHref, setDownloadHref] = useState("#");
-  const template = posterTemplates[templateKey];
-
-  const updateControl = (key, value) => {
-    setControls((current) => ({ ...current, [key]: value }));
-  };
+  const template = stitchTemplates[templateKey];
 
   const resetPoster = () => {
-    setControls(template.defaults);
-    setImages({ main: null, order: null });
-    setActiveSlot("main");
-    showToast("图片模板已恢复默认");
+    setImages(Array(template.count).fill(null));
+    setActiveSlot(0);
+    showToast("图片已清空");
   };
 
   const applyImage = async (file, slot = activeSlot) => {
     const image = await loadImageFromFile(file);
-    setImages((current) => ({ ...current, [slot]: image }));
-    setActiveSlot(slot === "main" ? "order" : "main");
-    showToast(`${slot === "main" ? "主图" : "订单图"}已粘贴`);
+    setImages((current) => current.map((item, index) => (index === slot ? image : item)));
+    setActiveSlot(Math.min(slot + 1, template.count - 1));
+    showToast(`图 ${slot + 1} 已放入`);
   };
 
   useEffect(() => {
@@ -265,73 +287,102 @@ function PosterComposer({ showToast }) {
       const imageItem = Array.from(event.clipboardData?.items || []).find((item) =>
         item.type.startsWith("image/"),
       );
-      if (!imageItem) return;
+      const imageFile = Array.from(event.clipboardData?.files || []).find((file) =>
+        file.type.startsWith("image/"),
+      );
+      if (!imageItem && !imageFile) return;
       event.preventDefault();
-      const file = imageItem.getAsFile();
+      const file = imageItem?.getAsFile() || imageFile;
       if (!file) return;
       const image = await loadImageFromFile(file);
-      setImages((current) => ({ ...current, [activeSlot]: image }));
-      setActiveSlot(activeSlot === "main" ? "order" : "main");
-      showToast(`${activeSlot === "main" ? "主图" : "订单图"}已粘贴`);
+      setImages((current) => current.map((item, index) => (index === activeSlot ? image : item)));
+      setActiveSlot(Math.min(activeSlot + 1, template.count - 1));
+      showToast(`图 ${activeSlot + 1} 已放入`);
     };
 
     document.addEventListener("paste", handlePaste);
     return () => document.removeEventListener("paste", handlePaste);
-  }, [activeSlot, showToast]);
+  }, [activeSlot, showToast, template.count]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    const [width, height] = controls.sizePreset.split("x").map(Number);
-    canvas.width = width;
-    canvas.height = height;
-    const scale = width / 1200;
+    canvas.width = template.width;
+    canvas.height = template.height;
 
-    ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = controls.bgColor;
-    ctx.fillRect(0, 0, width, height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const mainX = Number(controls.mainX) * scale;
-    const mainY = Number(controls.mainY) * scale;
-    const mainWidth = (width * Number(controls.mainW)) / 100;
-    const mainHeight = (mainWidth * 4) / 3;
-    drawImageFit(ctx, images.main, mainX, mainY, mainWidth, mainHeight, controls.mainFit);
+    const safeGap = Math.max(0, Number(gap) || 0);
+    const cellWidth = (canvas.width - safeGap * (template.cols - 1)) / template.cols;
+    const cellHeight = (canvas.height - safeGap * (template.rows - 1)) / template.rows;
 
-    const orderWidth = (width * Number(controls.orderW)) / 100;
-    const orderHeight = (height * Number(controls.orderH)) / 100;
-    const orderX = (width * Number(controls.orderX)) / 100;
-    const orderY = height - orderHeight - Number(controls.orderBottom) * scale;
-    const watermarkHeight = Number(controls.wmSize) * 3.15;
-    const watermarkY = Math.max(
-      mainY + mainHeight - watermarkHeight * 0.55,
-      orderY - watermarkHeight - 8 * scale,
-    );
+    images.forEach((image, index) => {
+      const col = index % template.cols;
+      const row = Math.floor(index / template.cols);
+      const x = col * (cellWidth + safeGap);
+      const y = row * (cellHeight + safeGap);
+      drawImageFit(ctx, image, x, y, cellWidth, cellHeight, "cover");
+    });
 
-    const lines = [controls.wmLine1.trim(), controls.wmLine2.trim(), controls.wmLine3.trim()];
-    if (lines.some(Boolean)) {
-      const opacity = Math.max(0, Math.min(1, Number(controls.wmOpacity) / 100));
-      const size = Number(controls.wmSize);
-      const gap = Number(controls.wmGap);
-      const lineHeight = size * 1.05;
+    if (watermark.enabled) {
+      const lines = [watermark.line1.trim(), watermark.line2.trim(), watermark.line3.trim()];
+      if (lines.some(Boolean)) {
+        const size = Math.max(10, Number(watermark.size) || 28);
+        const opacity = Math.max(0, Math.min(1, (Number(watermark.opacity) || 30) / 100));
+        const groupGap = Math.max(80, Number(watermark.groupGap) || 180);
+        const lineHeight = size * 1.05;
+        const watermarkHeight = lineHeight * 3;
+        const y = template.rows > 1
+          ? Math.max(0, cellHeight - watermarkHeight * 0.52)
+          : Math.max(0, canvas.height - watermarkHeight - canvas.height * 0.05);
 
-      ctx.save();
-      ctx.globalAlpha = opacity;
-      ctx.fillStyle = controls.wmColor;
-      ctx.font = `700 ${size}px "PingFang SC", "Microsoft YaHei", sans-serif`;
-      ctx.textAlign = "left";
-      ctx.textBaseline = "top";
-      for (let x = -8; x < canvas.width + gap; x += gap) {
-        lines.forEach((line, index) => {
-          if (line) ctx.fillText(line, x, watermarkY + index * lineHeight);
-        });
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.fillStyle = watermark.color;
+        ctx.font = `700 ${size}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        for (let x = -8; x < canvas.width + groupGap; x += groupGap) {
+          lines.forEach((line, index) => {
+            if (line) ctx.fillText(line, x, y + index * lineHeight);
+          });
+        }
+        ctx.restore();
       }
-      ctx.restore();
     }
 
-    drawImageFit(ctx, images.order, orderX, orderY, orderWidth, orderHeight, "cover");
-    setDownloadHref(canvas.toDataURL("image/png"));
-  }, [controls, images]);
+    if (headline.enabled) {
+      const lines = [headline.line1.trim(), headline.line2.trim()].filter(Boolean);
+      if (lines.length > 0) {
+        const size = Math.max(24, Number(headline.size) || 96);
+        const lineHeight = size * 1.05;
+        const blockHeight = lineHeight * lines.length;
+        const centerY = canvas.height / 2;
+        const startY = centerY - blockHeight / 2 + lineHeight * 0.08;
+
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        ctx.font = `900 ${size}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+        ctx.lineJoin = "round";
+        ctx.miterLimit = 2;
+        ctx.strokeStyle = "#111111";
+        ctx.fillStyle = "#ffd82f";
+        ctx.lineWidth = Math.max(8, size * 0.13);
+        lines.forEach((line, index) => {
+          const y = startY + index * lineHeight;
+          ctx.strokeText(line, canvas.width / 2, y);
+          ctx.fillText(line, canvas.width / 2, y);
+        });
+        ctx.restore();
+      }
+    }
+
+    setDownloadHref(canvas.toDataURL(format, 0.95));
+  }, [format, gap, headline, images, template, watermark]);
 
   const copyPoster = () => {
     const canvas = canvasRef.current;
@@ -358,8 +409,9 @@ function PosterComposer({ showToast }) {
   const handleTemplateChange = (event) => {
     const nextKey = event.target.value;
     setTemplateKey(nextKey);
-    setControls(posterTemplates[nextKey].defaults);
-    showToast(`已切换到：${posterTemplates[nextKey].name}`);
+    setImages(Array(stitchTemplates[nextKey].count).fill(null));
+    setActiveSlot(0);
+    showToast(`已切换到：${stitchTemplates[nextKey].name}`);
   };
 
   const handleDrop = async (event, slot) => {
@@ -374,103 +426,167 @@ function PosterComposer({ showToast }) {
         <aside className="poster-controls">
           <section className="control-section">
             <p className="panel-kicker">模板</p>
-            <label>
-              选择模板
-              <select value={templateKey} onChange={handleTemplateChange}>
-                {Object.entries(posterTemplates).map(([key, item]) => (
-                  <option key={key} value={key}>{item.name}</option>
-                ))}
-              </select>
-            </label>
+            <div className="stitch-templates">
+              {Object.entries(stitchTemplates).map(([key, item]) => (
+                <button
+                  className={`stitch-template ${templateKey === key ? "active" : ""}`}
+                  key={key}
+                  onClick={() => handleTemplateChange({ target: { value: key } })}
+                  type="button"
+                >
+                  <span className={`stitch-icon ${key}`}>
+                    {Array.from({ length: item.count }, (_, index) => <span key={index} />)}
+                  </span>
+                  <span>
+                    <strong>{item.name}</strong>
+                    <small>{item.note}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
             <p className="small-note">{template.note}</p>
           </section>
 
           <section className="control-section">
             <p className="panel-kicker">图片</p>
-            {[
-              ["main", "主图", "点这里后直接粘贴图1"],
-              ["order", "订单图", "点这里后直接粘贴图2"],
-            ].map(([slot, title, desc]) => (
-              <div
-                className={`drop ${activeSlot === slot ? "active" : ""}`}
-                key={slot}
-                onClick={() => setActiveSlot(slot)}
-                onFocus={() => setActiveSlot(slot)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => handleDrop(event, slot)}
-                role="button"
-                tabIndex={0}
-              >
-                <span><strong>{title}</strong>{desc}</span>
-              </div>
-            ))}
-            <p className="small-note">也可以连续粘贴：第一张进主图，第二张进订单图。</p>
+            <div className={`upload-grid ${templateKey}`}>
+              {images.map((image, index) => (
+                <div
+                  className={`image-slot ${template.slotClass} ${activeSlot === index ? "active" : ""}`}
+                  key={index}
+                  onClick={() => setActiveSlot(index)}
+                  onFocus={() => setActiveSlot(index)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => handleDrop(event, index)}
+                  role="button"
+                  tabIndex={0}
+                >
+                  {image ? <img alt={`图 ${index + 1}`} src={image.src} /> : <span className="plus">＋</span>}
+                  <em>图 {index + 1}</em>
+                </div>
+              ))}
+            </div>
+            <p className="small-note">复制图片后点格子按 ⌘V / Ctrl+V，或把图片直接拖进格子；连续粘贴会自动填下一个格子。</p>
           </section>
 
-          <ControlSection title="整体">
+          <ControlSection title="拼接设置">
             <div className="field-grid">
-              <ColorField label="背景色" value={controls.bgColor} onChange={(value) => updateControl("bgColor", value)} />
+              <NumberField label="图片间距" value={gap} onChange={setGap} min="0" max="60" />
               <label>
-                导出尺寸
-                <select value={controls.sizePreset} onChange={(event) => updateControl("sizePreset", event.target.value)}>
-                  <option value="1200x1600">1200 x 1600</option>
-                  <option value="1080x1440">1080 x 1440</option>
-                  <option value="900x1200">900 x 1200</option>
+                导出格式
+                <select value={format} onChange={(event) => setFormat(event.target.value)}>
+                  <option value="image/png">PNG</option>
+                  <option value="image/jpeg">JPG</option>
                 </select>
               </label>
             </div>
-          </ControlSection>
-
-          <ControlSection title="主图位置">
-            <div className="field-grid">
-              <NumberField label="左边距" value={controls.mainX} onChange={(value) => updateControl("mainX", value)} min="0" max="500" />
-              <NumberField label="上边距" value={controls.mainY} onChange={(value) => updateControl("mainY", value)} min="0" max="500" />
-              <NumberField label="宽度 %" value={controls.mainW} onChange={(value) => updateControl("mainW", value)} min="30" max="100" />
-              <label>
-                裁切方式
-                <select value={controls.mainFit} onChange={(event) => updateControl("mainFit", event.target.value)}>
-                  <option value="contain">完整显示</option>
-                  <option value="cover">铺满裁切</option>
-                </select>
-              </label>
-            </div>
-          </ControlSection>
-
-          <ControlSection title="订单图位置">
-            <div className="field-grid">
-              <NumberField label="左边距" value={controls.orderX} onChange={(value) => updateControl("orderX", value)} min="0" max="80" />
-              <NumberField label="下边距" value={controls.orderBottom} onChange={(value) => updateControl("orderBottom", value)} min="0" max="300" />
-              <NumberField label="宽度 %" value={controls.orderW} onChange={(value) => updateControl("orderW", value)} min="30" max="100" />
-              <NumberField label="高度 %" value={controls.orderH} onChange={(value) => updateControl("orderH", value)} min="10" max="50" />
-            </div>
+            <p className="small-note">图片会按每个格子的比例居中裁剪，所有处理都在浏览器本地完成。</p>
           </ControlSection>
 
           <ControlSection title="水印">
+            <label className="toggle-row">
+              <input
+                checked={watermark.enabled}
+                onChange={(event) => setWatermark((current) => ({ ...current, enabled: event.target.checked }))}
+                type="checkbox"
+              />
+              显示水印
+            </label>
             <div className="field-grid">
-              <TextField label="第一行" value={controls.wmLine1} onChange={(value) => updateControl("wmLine1", value)} />
-              <TextField label="第二行" value={controls.wmLine2} onChange={(value) => updateControl("wmLine2", value)} />
+              <TextField
+                label="第一行"
+                value={watermark.line1}
+                onChange={(value) => setWatermark((current) => ({ ...current, line1: value }))}
+              />
+              <TextField
+                label="第二行"
+                value={watermark.line2}
+                onChange={(value) => setWatermark((current) => ({ ...current, line2: value }))}
+              />
             </div>
-            <TextField label="第三行" value={controls.wmLine3} onChange={(value) => updateControl("wmLine3", value)} />
+            <TextField
+              label="第三行"
+              value={watermark.line3}
+              onChange={(value) => setWatermark((current) => ({ ...current, line3: value }))}
+            />
             <div className="field-grid">
-              <NumberField label="字号" value={controls.wmSize} onChange={(value) => updateControl("wmSize", value)} min="10" max="80" />
+              <NumberField
+                label="字号"
+                value={watermark.size}
+                onChange={(value) => setWatermark((current) => ({ ...current, size: value }))}
+                min="10"
+                max="80"
+              />
               <label>
                 透明度
-                <input type="range" value={controls.wmOpacity} min="5" max="80" onChange={(event) => updateControl("wmOpacity", event.target.value)} />
+                <input
+                  max="80"
+                  min="5"
+                  onChange={(event) => setWatermark((current) => ({ ...current, opacity: event.target.value }))}
+                  type="range"
+                  value={watermark.opacity}
+                />
               </label>
-              <NumberField label="组间距" value={controls.wmGap} onChange={(value) => updateControl("wmGap", value)} min="80" max="360" />
-              <ColorField label="颜色" value={controls.wmColor} onChange={(value) => updateControl("wmColor", value)} />
+              <NumberField
+                label="组间距"
+                value={watermark.groupGap}
+                onChange={(value) => setWatermark((current) => ({ ...current, groupGap: value }))}
+                min="80"
+                max="360"
+              />
+              <ColorField
+                label="颜色"
+                value={watermark.color}
+                onChange={(value) => setWatermark((current) => ({ ...current, color: value }))}
+              />
             </div>
+            <p className="small-note">水印会横向铺满一排；多排模板默认放在上下图片交接处。</p>
+          </ControlSection>
+
+          <ControlSection title="花字">
+            <label className="toggle-row">
+              <input
+                checked={headline.enabled}
+                onChange={(event) => setHeadline((current) => ({ ...current, enabled: event.target.checked }))}
+                type="checkbox"
+              />
+              显示花字
+            </label>
+            <div className="field-grid">
+              <TextField
+                label="内容 1"
+                value={headline.line1}
+                onChange={(value) => setHeadline((current) => ({ ...current, line1: value }))}
+              />
+              <TextField
+                label="内容 2"
+                value={headline.line2}
+                onChange={(value) => setHeadline((current) => ({ ...current, line2: value }))}
+              />
+            </div>
+            <NumberField
+              label="字号"
+              value={headline.size}
+              onChange={(value) => setHeadline((current) => ({ ...current, size: value }))}
+              min="24"
+              max="180"
+            />
+            <p className="small-note">花字横向居中，黄色加粗并带黑色描边，可随时关闭。</p>
           </ControlSection>
 
           <div className="poster-actions">
-            <button className="ghost-button" type="button" onClick={resetPoster}>恢复默认</button>
+            <button className="ghost-button" type="button" onClick={resetPoster}>清空图片</button>
             <button className="copy-button" type="button" onClick={copyPoster}>复制成品图</button>
-            <a className="fallback-link" download="poster-watermarked.png" href={downloadHref}>备用下载</a>
+            <a className="fallback-link" download={`拼接成品-${templateKey}.${format === "image/png" ? "png" : "jpg"}`} href={downloadHref}>备用下载</a>
           </div>
         </aside>
 
         <div className="poster-stage">
-          <canvas ref={canvasRef} width="1200" height="1600" aria-label="成品预览" />
+          <div className="preview-head">
+            <h2>成品预览</h2>
+            <span className="preview-badge">{template.badge}</span>
+          </div>
+          <canvas ref={canvasRef} width={template.width} height={template.height} aria-label="成品预览" />
         </div>
       </div>
     </section>
@@ -516,12 +632,13 @@ function ColorField({ label, onChange, value }) {
 export default function App() {
   const [mode, setMode] = useState("copy");
   const [toast, setToast] = useState("");
+  const toastTimerRef = useRef(null);
 
-  const showToast = (message) => {
+  const showToast = useCallback((message) => {
     setToast(message);
-    window.clearTimeout(showToast.timer);
-    showToast.timer = window.setTimeout(() => setToast(""), 1800);
-  };
+    window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(""), 1800);
+  }, []);
 
   return (
     <main className="app-shell">
