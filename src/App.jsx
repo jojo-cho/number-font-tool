@@ -53,15 +53,15 @@ https://abc123.com/sale618`;
 
 const stitchTemplates = {
   two: {
-    name: "两张横向拼接",
-    note: "左右各一张，适合横向对比或前后效果展示。",
+    name: "两张 3:4 拼接",
+    note: "两张竖图左右并排，适合商品主图组合。",
     count: 2,
     cols: 2,
     rows: 1,
-    width: 1600,
-    height: 900,
-    slotClass: "wide",
-    badge: "两张横拼",
+    width: 1200,
+    height: 800,
+    slotClass: "portrait",
+    badge: "3:2 成品",
   },
   four: {
     name: "四张 3:4 拼接",
@@ -86,6 +86,57 @@ const stitchTemplates = {
     badge: "9:8 成品",
   },
 };
+
+const storageKey = "wechat-tool-collage-state-v2";
+
+const defaultWatermark = {
+  enabled: true,
+  line1: "淘宝闪购搜",
+  line2: "300466",
+  line3: "领外卖红包",
+  size: 28,
+  opacity: 30,
+  groupGap: 180,
+  color: "#ffffff",
+};
+
+const defaultHeadline = {
+  enabled: false,
+  line1: "爆品热销榜",
+  line2: "京鲜生水果",
+  size: 96,
+  color: "#ffd82f",
+};
+
+function emptyImagesByTemplate() {
+  return Object.fromEntries(
+    Object.entries(stitchTemplates).map(([key, template]) => [
+      key,
+      Array(template.count).fill(null),
+    ]),
+  );
+}
+
+function readSavedPosterState() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
+    return {
+      templateKey: stitchTemplates[saved.templateKey] ? saved.templateKey : "two",
+      gap: saved.gap ?? 0,
+      format: saved.format || "image/png",
+      watermark: { ...defaultWatermark, ...(saved.watermark || {}) },
+      headline: { ...defaultHeadline, ...(saved.headline || {}) },
+    };
+  } catch {
+    return {
+      templateKey: "two",
+      gap: 0,
+      format: "image/png",
+      watermark: defaultWatermark,
+      headline: defaultHeadline,
+    };
+  }
+}
 
 function replaceByMap(text, map) {
   return Object.entries(map).reduce(
@@ -197,7 +248,12 @@ function CopyFormatter({ showToast }) {
               <p className="panel-kicker">输入</p>
               <h2>原始文案</h2>
             </div>
-            <span className="count-pill">{input.length} 字</span>
+            <div className="header-actions">
+              <span className="count-pill">{input.length} 字</span>
+              <button className="danger-button" type="button" onClick={() => setInput("")}>
+                一键删除
+              </button>
+            </div>
           </div>
 
           <textarea
@@ -208,9 +264,6 @@ function CopyFormatter({ showToast }) {
           />
 
           <div className="button-row">
-            <button className="danger-button" type="button" onClick={() => setInput("")}>
-              一键删除
-            </button>
             <button className="ghost-button" type="button" onClick={() => setInput(sampleText)}>
               恢复示例
             </button>
@@ -245,39 +298,55 @@ function CopyFormatter({ showToast }) {
 
 function PosterComposer({ showToast }) {
   const canvasRef = useRef(null);
-  const [templateKey, setTemplateKey] = useState("two");
-  const [images, setImages] = useState(() => Array(stitchTemplates.two.count).fill(null));
+  const [savedState] = useState(() => readSavedPosterState());
+  const [templateKey, setTemplateKey] = useState(savedState.templateKey);
+  const [imagesByTemplate, setImagesByTemplate] = useState(emptyImagesByTemplate);
   const [activeSlot, setActiveSlot] = useState(0);
-  const [gap, setGap] = useState(0);
-  const [format, setFormat] = useState("image/png");
-  const [watermark, setWatermark] = useState({
-    enabled: true,
-    line1: "淘宝闪购搜",
-    line2: "300466",
-    line3: "领外卖红包",
-    size: 28,
-    opacity: 30,
-    groupGap: 180,
-    color: "#ffffff",
-  });
-  const [headline, setHeadline] = useState({
-    enabled: false,
-    line1: "爆品热销榜",
-    line2: "京鲜生水果",
-    size: 96,
-  });
+  const [gap, setGap] = useState(savedState.gap);
+  const [format, setFormat] = useState(savedState.format);
+  const [watermark, setWatermark] = useState(savedState.watermark);
+  const [headline, setHeadline] = useState(savedState.headline);
   const [downloadHref, setDownloadHref] = useState("#");
   const template = stitchTemplates[templateKey];
+  const images = imagesByTemplate[templateKey] || Array(template.count).fill(null);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        templateKey,
+        gap,
+        format,
+        watermark,
+        headline,
+      }),
+    );
+  }, [format, gap, headline, templateKey, watermark]);
+
+  const deleteImage = useCallback((slot = activeSlot) => {
+    setImagesByTemplate((current) => ({
+      ...current,
+      [templateKey]: current[templateKey].map((item, index) => (index === slot ? null : item)),
+    }));
+    setActiveSlot(slot);
+    showToast(`图 ${slot + 1} 已删除`);
+  }, [activeSlot, showToast, templateKey]);
 
   const resetPoster = () => {
-    setImages(Array(template.count).fill(null));
+    setImagesByTemplate((current) => ({
+      ...current,
+      [templateKey]: Array(template.count).fill(null),
+    }));
     setActiveSlot(0);
-    showToast("图片已清空");
+    showToast("当前模板图片已清空");
   };
 
   const applyImage = async (file, slot = activeSlot) => {
     const image = await loadImageFromFile(file);
-    setImages((current) => current.map((item, index) => (index === slot ? image : item)));
+    setImagesByTemplate((current) => ({
+      ...current,
+      [templateKey]: current[templateKey].map((item, index) => (index === slot ? image : item)),
+    }));
     setActiveSlot(Math.min(slot + 1, template.count - 1));
     showToast(`图 ${slot + 1} 已放入`);
   };
@@ -295,14 +364,32 @@ function PosterComposer({ showToast }) {
       const file = imageItem?.getAsFile() || imageFile;
       if (!file) return;
       const image = await loadImageFromFile(file);
-      setImages((current) => current.map((item, index) => (index === activeSlot ? image : item)));
+      setImagesByTemplate((current) => ({
+        ...current,
+        [templateKey]: current[templateKey].map((item, index) => (index === activeSlot ? image : item)),
+      }));
       setActiveSlot(Math.min(activeSlot + 1, template.count - 1));
       showToast(`图 ${activeSlot + 1} 已放入`);
     };
 
     document.addEventListener("paste", handlePaste);
     return () => document.removeEventListener("paste", handlePaste);
-  }, [activeSlot, showToast, template.count]);
+  }, [activeSlot, showToast, template.count, templateKey]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      const tagName = event.target?.tagName;
+      if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT") return;
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      if (!images[activeSlot]) return;
+
+      event.preventDefault();
+      deleteImage(activeSlot);
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [activeSlot, deleteImage, images]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -370,7 +457,7 @@ function PosterComposer({ showToast }) {
         ctx.lineJoin = "round";
         ctx.miterLimit = 2;
         ctx.strokeStyle = "#111111";
-        ctx.fillStyle = "#ffd82f";
+        ctx.fillStyle = headline.color || "#ffd82f";
         ctx.lineWidth = Math.max(8, size * 0.13);
         lines.forEach((line, index) => {
           const y = startY + index * lineHeight;
@@ -409,8 +496,7 @@ function PosterComposer({ showToast }) {
   const handleTemplateChange = (event) => {
     const nextKey = event.target.value;
     setTemplateKey(nextKey);
-    setImages(Array(stitchTemplates[nextKey].count).fill(null));
-    setActiveSlot(0);
+    setActiveSlot((current) => Math.min(current, stitchTemplates[nextKey].count - 1));
     showToast(`已切换到：${stitchTemplates[nextKey].name}`);
   };
 
@@ -418,6 +504,14 @@ function PosterComposer({ showToast }) {
     event.preventDefault();
     const file = event.dataTransfer.files?.[0];
     if (file) await applyImage(file, slot);
+  };
+
+  const handleSlotKeyDown = (event, slot) => {
+    if (event.key !== "Delete" && event.key !== "Backspace") return;
+    if (!images[slot]) return;
+
+    event.preventDefault();
+    deleteImage(slot);
   };
 
   return (
@@ -458,15 +552,29 @@ function PosterComposer({ showToast }) {
                   onFocus={() => setActiveSlot(index)}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={(event) => handleDrop(event, index)}
+                  onKeyDown={(event) => handleSlotKeyDown(event, index)}
                   role="button"
                   tabIndex={0}
                 >
                   {image ? <img alt={`图 ${index + 1}`} src={image.src} /> : <span className="plus">＋</span>}
                   <em>图 {index + 1}</em>
+                  {image && (
+                    <button
+                      aria-label={`删除图 ${index + 1}`}
+                      className="slot-delete"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteImage(index);
+                      }}
+                      type="button"
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
-            <p className="small-note">复制图片后点格子按 ⌘V / Ctrl+V，或把图片直接拖进格子；连续粘贴会自动填下一个格子。</p>
+            <p className="small-note">复制图片后点格子按 ⌘V / Ctrl+V，或把图片直接拖进格子；贴错时点 × 或按 Delete 删除。</p>
           </section>
 
           <ControlSection title="拼接设置">
@@ -571,7 +679,12 @@ function PosterComposer({ showToast }) {
               min="24"
               max="180"
             />
-            <p className="small-note">花字横向居中，黄色加粗并带黑色描边，可随时关闭。</p>
+            <ColorField
+              label="文字颜色"
+              value={headline.color}
+              onChange={(value) => setHeadline((current) => ({ ...current, color: value }))}
+            />
+            <p className="small-note">花字横向居中，加粗并带黑色描边，可随时关闭。</p>
           </ControlSection>
 
           <div className="poster-actions">
@@ -581,7 +694,7 @@ function PosterComposer({ showToast }) {
           </div>
         </aside>
 
-        <div className="poster-stage">
+        <div className={`poster-stage template-${templateKey}`}>
           <div className="preview-head">
             <h2>成品预览</h2>
             <span className="preview-badge">{template.badge}</span>
@@ -645,7 +758,7 @@ export default function App() {
       <section className="hero-section">
         <div className="hero-copy">
           <p className="eyebrow">WeChat Toolkit</p>
-          <h1>微信文案与作图工具</h1>
+          <h1>大强传媒内部工具</h1>
           <p className="hero-subtitle">
             文案美化和图片合成放在一个入口里，后续模板可以继续加到同一套工具中。
           </p>
