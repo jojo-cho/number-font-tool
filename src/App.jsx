@@ -53,15 +53,15 @@ https://abc123.com/sale618`;
 
 const stitchTemplates = {
   two: {
-    name: "两张 3:4 拼接",
-    note: "两张竖图左右并排，适合商品主图组合。",
+    name: "两张横向拼接",
+    note: "按原图比例等高横向拼接，不预设成品比例。",
     count: 2,
     cols: 2,
     rows: 1,
-    width: 1200,
-    height: 800,
-    slotClass: "portrait",
-    badge: "3:2 成品",
+    width: 1600,
+    height: 900,
+    slotClass: "wide",
+    badge: "等高拼接",
   },
   four: {
     name: "四张 3:4 拼接",
@@ -107,6 +107,29 @@ const defaultHeadline = {
   size: 96,
   color: "#ffd82f",
 };
+
+const defaultTwoLayout = {
+  width: 1600,
+  height: 900,
+  rects: [
+    { x: 0, y: 0, width: 800, height: 900 },
+    { x: 800, y: 0, width: 800, height: 900 },
+  ],
+  imageRects: [
+    { x: 0, y: 0, width: 800, height: 900 },
+    { x: 800, y: 0, width: 800, height: 900 },
+  ],
+  views: [
+    { scale: 1, offsetX: 0, offsetY: 0 },
+    { scale: 1, offsetX: 0, offsetY: 0 },
+  ],
+};
+
+const resizeEdges = ["top", "right", "bottom", "left"];
+
+function clampNumber(value, min, max = Number.POSITIVE_INFINITY) {
+  return Math.min(max, Math.max(min, value));
+}
 
 function emptyImagesByTemplate() {
   return Object.fromEntries(
@@ -182,6 +205,176 @@ function loadImageFromFile(file) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function pickBaseImage(images) {
+  const presentImages = images
+    .map((image, index) => ({ image, index }))
+    .filter(({ image }) => image);
+
+  if (presentImages.length === 0) return null;
+
+  return presentImages.reduce((base, item) => {
+    if (item.image.width < base.image.width) return item;
+    if (item.image.width === base.image.width && item.image.height < base.image.height) return item;
+    return base;
+  });
+}
+
+function getTwoRects(images, gap = 0, sizeOverride = null) {
+  const safeGap = Math.max(0, Number(gap) || 0);
+  const base = pickBaseImage(images);
+  const baseHeight = sizeOverride?.height || base?.image.height || defaultTwoLayout.height;
+  const rects = images.map((image) => {
+    const ratio = image ? image.width / image.height : 800 / defaultTwoLayout.height;
+    return {
+      x: 0,
+      y: 0,
+      width: Math.max(80, Math.round(baseHeight * ratio)),
+      height: baseHeight,
+    };
+  });
+
+  if (sizeOverride) {
+    const totalWidth = rects.reduce((total, rect) => total + rect.width, 0) + safeGap;
+    const scale = sizeOverride.width / Math.max(1, totalWidth);
+    rects.forEach((rect) => {
+      rect.width = Math.max(80, Math.round(rect.width * scale));
+      rect.height = sizeOverride.height;
+    });
+  }
+
+  rects[0].x = 0;
+  rects[1].x = rects[0].width + safeGap;
+  return rects;
+}
+
+function createTwoLayout(images = [], gap = 0, views = defaultTwoLayout.views, sizeOverride = null) {
+  const rects = getTwoRects(images, gap, sizeOverride);
+  const safeGap = Math.max(0, Number(gap) || 0);
+
+  return {
+    width: sizeOverride?.width || Math.max(240, rects.reduce((total, rect) => total + rect.width, 0) + safeGap),
+    height: sizeOverride?.height || Math.max(160, rects[0]?.height || defaultTwoLayout.height),
+    rects,
+    imageRects: rects.map((rect) => ({ ...rect })),
+    views: views.map((view) => ({ ...view })),
+  };
+}
+
+function drawImageCropped(ctx, image, rect, imageRect = rect) {
+  const { x, y, width, height } = rect;
+  if (!image) {
+    drawImageFit(ctx, image, x, y, width, height, "cover");
+    return;
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, width, height);
+  ctx.clip();
+  ctx.drawImage(image, imageRect.x, imageRect.y, imageRect.width, imageRect.height);
+  ctx.restore();
+}
+
+function resizeTwoLayout(resizeState, dx, dy) {
+  const next = {
+    ...resizeState.layout,
+    rects: resizeState.layout.rects.map((rect) => ({ ...rect })),
+    imageRects: resizeState.layout.imageRects.map((rect) => ({ ...rect })),
+    views: resizeState.layout.views.map((view) => ({ ...view })),
+  };
+  const { edge, type } = resizeState;
+
+  if (type === "canvas") {
+    if (edge === "right") {
+      next.width = Math.round(clampNumber(resizeState.layout.width + dx, 240, 4000));
+    }
+    if (edge === "bottom") {
+      next.height = Math.round(clampNumber(resizeState.layout.height + dy, 160, 4000));
+    }
+    if (edge === "left") {
+      const width = Math.round(clampNumber(resizeState.layout.width - dx, 240, 4000));
+      const shift = resizeState.layout.width - width;
+      next.width = width;
+      next.rects = next.rects.map((rect) => ({ ...rect, x: rect.x - shift }));
+      next.imageRects = next.imageRects.map((rect) => ({ ...rect, x: rect.x - shift }));
+    }
+    if (edge === "top") {
+      const height = Math.round(clampNumber(resizeState.layout.height - dy, 160, 4000));
+      const shift = resizeState.layout.height - height;
+      next.height = height;
+      next.rects = next.rects.map((rect) => ({ ...rect, y: rect.y - shift }));
+      next.imageRects = next.imageRects.map((rect) => ({ ...rect, y: rect.y - shift }));
+    }
+    return next;
+  }
+
+  return cropImageRect(next, resizeState, dx, dy);
+}
+
+function cropImageRect(layout, resizeState, dx, dy) {
+  const minSize = 80;
+  const safeGap = Math.max(0, Number(resizeState.gap) || 0);
+  const rect = layout.rects[resizeState.index];
+  const imageRect = layout.imageRects[resizeState.index];
+  if (!rect) return layout;
+
+  const cropOffsets = layout.rects.map((item, itemIndex) => ({
+    left: item.x - layout.imageRects[itemIndex].x,
+    top: item.y - layout.imageRects[itemIndex].y,
+  }));
+
+  if (resizeState.edge === "left") {
+    cropOffsets[resizeState.index].left = clampNumber(
+      cropOffsets[resizeState.index].left + dx,
+      0,
+      imageRect.width - minSize,
+    );
+    rect.width = imageRect.width - cropOffsets[resizeState.index].left;
+  }
+  if (resizeState.edge === "right") {
+    rect.width = clampNumber(
+      resizeState.rect.width + dx,
+      minSize,
+      imageRect.width - cropOffsets[resizeState.index].left,
+    );
+  }
+  if (resizeState.edge === "top") {
+    cropOffsets[resizeState.index].top = clampNumber(
+      cropOffsets[resizeState.index].top + dy,
+      0,
+      imageRect.height - minSize,
+    );
+    rect.height = imageRect.height - cropOffsets[resizeState.index].top;
+  }
+  if (resizeState.edge === "bottom") {
+    rect.height = clampNumber(
+      resizeState.rect.height + dy,
+      minSize,
+      imageRect.height - cropOffsets[resizeState.index].top,
+    );
+  }
+
+  layout.rects[0].x = 0;
+  layout.rects[1].x = layout.rects[0].width + safeGap;
+  const minY = Math.min(...layout.rects.map((item) => item.y));
+  layout.rects = layout.rects.map((item) => ({ ...item, y: item.y - minY }));
+  layout.imageRects = layout.imageRects.map((item, itemIndex) => ({
+    ...item,
+    x: layout.rects[itemIndex].x - cropOffsets[itemIndex].left,
+    y: layout.rects[itemIndex].y - cropOffsets[itemIndex].top,
+  }));
+  layout.width = Math.max(
+    240,
+    Math.round(layout.rects[0].width + layout.rects[1].width + safeGap),
+  );
+  layout.height = Math.max(
+    160,
+    Math.round(Math.max(...layout.rects.map((item) => item.y + item.height))),
+  );
+
+  return layout;
 }
 
 function drawImageFit(ctx, image, x, y, width, height, fit) {
@@ -298,6 +491,8 @@ function CopyFormatter({ showToast }) {
 
 function PosterComposer({ showToast }) {
   const canvasRef = useRef(null);
+  const previewWrapRef = useRef(null);
+  const resizeRef = useRef(null);
   const [savedState] = useState(() => readSavedPosterState());
   const [templateKey, setTemplateKey] = useState(savedState.templateKey);
   const [imagesByTemplate, setImagesByTemplate] = useState(emptyImagesByTemplate);
@@ -306,9 +501,17 @@ function PosterComposer({ showToast }) {
   const [format, setFormat] = useState(savedState.format);
   const [watermark, setWatermark] = useState(savedState.watermark);
   const [headline, setHeadline] = useState(savedState.headline);
+  const [twoLayout, setTwoLayout] = useState(defaultTwoLayout);
   const [downloadHref, setDownloadHref] = useState("#");
   const template = stitchTemplates[templateKey];
   const images = imagesByTemplate[templateKey] || Array(template.count).fill(null);
+  const activeLayout = useMemo(() => (
+    templateKey === "two" ? twoLayout : {
+      width: template.width,
+      height: template.height,
+      rects: [],
+    }
+  ), [template.height, template.width, templateKey, twoLayout]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -337,9 +540,41 @@ function PosterComposer({ showToast }) {
       ...current,
       [templateKey]: Array(template.count).fill(null),
     }));
+    if (templateKey === "two") setTwoLayout(defaultTwoLayout);
     setActiveSlot(0);
     showToast("当前模板图片已清空");
   };
+
+  const resetTwoLayout = useCallback(() => {
+    setTwoLayout(createTwoLayout(images, gap));
+    showToast("已恢复等高横向拼接");
+  }, [gap, images, showToast]);
+
+  const updateGap = useCallback((value) => {
+    setGap(value);
+    if (templateKey !== "two") return;
+
+    setTwoLayout((current) => {
+      const safeGap = Math.max(0, Number(value) || 0);
+      const rects = current.rects.map((rect) => ({ ...rect }));
+      const imageRects = current.imageRects.map((rect) => ({ ...rect }));
+      const cropOffsets = rects.map((rect, index) => ({
+        left: rect.x - imageRects[index].x,
+        top: rect.y - imageRects[index].y,
+      }));
+      rects[0].x = 0;
+      rects[1].x = rects[0].width + safeGap;
+      imageRects[0].x = rects[0].x - cropOffsets[0].left;
+      imageRects[1].x = rects[1].x - cropOffsets[1].left;
+
+      return {
+        ...current,
+        imageRects,
+        rects,
+        width: Math.max(240, Math.round(rects[0].width + rects[1].width + safeGap)),
+      };
+    });
+  }, [templateKey]);
 
   const applyImage = async (file, slot = activeSlot) => {
     const image = await loadImageFromFile(file);
@@ -347,6 +582,14 @@ function PosterComposer({ showToast }) {
       ...current,
       [templateKey]: current[templateKey].map((item, index) => (index === slot ? image : item)),
     }));
+    if (templateKey === "two") {
+      const nextImages = images.map((item, index) => (index === slot ? image : item));
+      setTwoLayout((current) => createTwoLayout(
+        nextImages,
+        gap,
+        current.views.map((view, index) => (index === slot ? defaultTwoLayout.views[index] : view)),
+      ));
+    }
     setActiveSlot(Math.min(slot + 1, template.count - 1));
     showToast(`图 ${slot + 1} 已放入`);
   };
@@ -368,13 +611,21 @@ function PosterComposer({ showToast }) {
         ...current,
         [templateKey]: current[templateKey].map((item, index) => (index === activeSlot ? image : item)),
       }));
+      if (templateKey === "two") {
+        const nextImages = images.map((item, index) => (index === activeSlot ? image : item));
+        setTwoLayout((current) => createTwoLayout(
+          nextImages,
+          gap,
+          current.views.map((view, index) => (index === activeSlot ? defaultTwoLayout.views[index] : view)),
+        ));
+      }
       setActiveSlot(Math.min(activeSlot + 1, template.count - 1));
       showToast(`图 ${activeSlot + 1} 已放入`);
     };
 
     document.addEventListener("paste", handlePaste);
     return () => document.removeEventListener("paste", handlePaste);
-  }, [activeSlot, showToast, template.count, templateKey]);
+  }, [activeSlot, gap, images, showToast, template.count, templateKey]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -395,8 +646,8 @@ function PosterComposer({ showToast }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    canvas.width = template.width;
-    canvas.height = template.height;
+    canvas.width = activeLayout.width;
+    canvas.height = activeLayout.height;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#ffffff";
@@ -406,13 +657,19 @@ function PosterComposer({ showToast }) {
     const cellWidth = (canvas.width - safeGap * (template.cols - 1)) / template.cols;
     const cellHeight = (canvas.height - safeGap * (template.rows - 1)) / template.rows;
 
-    images.forEach((image, index) => {
-      const col = index % template.cols;
-      const row = Math.floor(index / template.cols);
-      const x = col * (cellWidth + safeGap);
-      const y = row * (cellHeight + safeGap);
-      drawImageFit(ctx, image, x, y, cellWidth, cellHeight, "cover");
-    });
+    if (templateKey === "two") {
+      activeLayout.rects.forEach((rect, index) => {
+        drawImageCropped(ctx, images[index], rect, activeLayout.imageRects[index]);
+      });
+    } else {
+      images.forEach((image, index) => {
+        const col = index % template.cols;
+        const row = Math.floor(index / template.cols);
+        const x = col * (cellWidth + safeGap);
+        const y = row * (cellHeight + safeGap);
+        drawImageFit(ctx, image, x, y, cellWidth, cellHeight, "cover");
+      });
+    }
 
     if (watermark.enabled) {
       const lines = [watermark.line1.trim(), watermark.line2.trim(), watermark.line3.trim()];
@@ -469,7 +726,56 @@ function PosterComposer({ showToast }) {
     }
 
     setDownloadHref(canvas.toDataURL(format, 0.95));
-  }, [format, gap, headline, images, template, watermark]);
+  }, [activeLayout, format, gap, headline, images, template, templateKey, watermark]);
+
+  useEffect(() => {
+    const handlePointerMove = (event) => {
+      const resizeState = resizeRef.current;
+      if (!resizeState) return;
+      const wrap = previewWrapRef.current;
+      if (!wrap) return;
+
+      const bounds = wrap.getBoundingClientRect();
+      const dx = (event.clientX - resizeState.startX) * (resizeState.layout.width / bounds.width);
+      const dy = (event.clientY - resizeState.startY) * (resizeState.layout.height / bounds.height);
+      setTwoLayout(() => resizeTwoLayout(resizeState, dx, dy));
+    };
+
+    const handlePointerUp = () => {
+      resizeRef.current = null;
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, []);
+
+  const beginResize = (event, type, edge, index = null) => {
+    if (templateKey !== "two") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = index === null ? null : activeLayout.rects[index];
+    const view = index === null ? null : activeLayout.views[index];
+    resizeRef.current = {
+      edge,
+      gap,
+      images,
+      index,
+      rect,
+      startX: event.clientX,
+      startY: event.clientY,
+      layout: {
+        ...activeLayout,
+        views: activeLayout.views.map((item) => ({ ...item })),
+      },
+      type,
+      view,
+    };
+    if (index !== null) setActiveSlot(index);
+  };
 
   const copyPoster = () => {
     const canvas = canvasRef.current;
@@ -579,7 +885,7 @@ function PosterComposer({ showToast }) {
 
           <ControlSection title="拼接设置">
             <div className="field-grid">
-              <NumberField label="图片间距" value={gap} onChange={setGap} min="0" max="60" />
+              <NumberField label="图片间距" value={gap} onChange={updateGap} min="0" max="60" />
               <label>
                 导出格式
                 <select value={format} onChange={(event) => setFormat(event.target.value)}>
@@ -588,7 +894,12 @@ function PosterComposer({ showToast }) {
                 </select>
               </label>
             </div>
-            <p className="small-note">图片会按每个格子的比例居中裁剪，所有处理都在浏览器本地完成。</p>
+            {templateKey === "two" && (
+              <button className="ghost-button compact-button" type="button" onClick={() => resetTwoLayout()}>
+                恢复等高拼接
+              </button>
+            )}
+            <p className="small-note">{templateKey === "two" ? "两张图按原比例等高横向拼接；拖单图边线只裁切不拉伸。" : "图片会按每个格子的比例居中裁剪，所有处理都在浏览器本地完成。"}</p>
           </ControlSection>
 
           <ControlSection title="水印">
@@ -699,7 +1010,48 @@ function PosterComposer({ showToast }) {
             <h2>成品预览</h2>
             <span className="preview-badge">{template.badge}</span>
           </div>
-          <canvas ref={canvasRef} width={template.width} height={template.height} aria-label="成品预览" />
+          <div
+            className={`canvas-wrap ${templateKey === "two" ? "resizable" : ""}`}
+            ref={previewWrapRef}
+            style={{ aspectRatio: `${activeLayout.width} / ${activeLayout.height}` }}
+          >
+            <canvas ref={canvasRef} width={activeLayout.width} height={activeLayout.height} aria-label="成品预览" />
+            {templateKey === "two" && (
+              <>
+                <div className="canvas-resize-layer" aria-hidden="true">
+                  {resizeEdges.map((edge) => (
+                    <button
+                      className={`resize-handle canvas-handle ${edge}`}
+                      key={edge}
+                      onPointerDown={(event) => beginResize(event, "canvas", edge)}
+                      type="button"
+                    />
+                  ))}
+                </div>
+                {activeLayout.rects.map((rect, index) => (
+                  <div
+                    className={`image-resize-box ${activeSlot === index ? "active" : ""}`}
+                    key={index}
+                    style={{
+                      height: `${(rect.height / activeLayout.height) * 100}%`,
+                      left: `${(rect.x / activeLayout.width) * 100}%`,
+                      top: `${(rect.y / activeLayout.height) * 100}%`,
+                      width: `${(rect.width / activeLayout.width) * 100}%`,
+                    }}
+                  >
+                    {resizeEdges.map((edge) => (
+                      <button
+                        className={`resize-handle image-handle ${edge}`}
+                        key={edge}
+                        onPointerDown={(event) => beginResize(event, "image", edge, index)}
+                        type="button"
+                      />
+                    ))}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </section>
