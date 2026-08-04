@@ -396,6 +396,10 @@ select:focus {
   grid-template-columns: 1fr 1fr;
 }
 
+.stitch-icon.vertical {
+  grid-template-rows: 1fr 1fr;
+}
+
 .stitch-icon.four {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
@@ -515,6 +519,14 @@ select:focus {
   background:
     linear-gradient(135deg, #fffefa, #fff4a8);
   cursor: pointer;
+}
+
+.image-slot[draggable="true"] {
+  cursor: grab;
+}
+
+.image-slot[draggable="true"]:active {
+  cursor: grabbing;
 }
 
 .image-slot.wide {
@@ -735,6 +747,31 @@ select:focus {
   margin-top: -21px;
 }
 
+.headline-size-handle {
+  position: absolute;
+  top: 50%;
+  right: 18%;
+  z-index: 4;
+  width: 42px;
+  height: 42px;
+  border: 2px solid #111111;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: #ffd82f;
+  color: #111111;
+  cursor: ew-resize;
+  font-family:
+    "Heiti SC", "SimHei", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  transform: translateY(-50%);
+  box-shadow:
+    0 0 0 2px #ffffff,
+    0 8px 18px rgba(0, 0, 0, 0.2);
+}
+
 .poster-stage canvas {
   width: min(100%, 620px);
   max-height: calc(100vh - 130px);
@@ -757,6 +794,13 @@ select:focus {
 }
 
 .poster-stage.template-four .canvas-wrap {
+  width: auto;
+  height: min(72vh, 760px);
+  max-width: 100%;
+  max-height: none;
+}
+
+.poster-stage.template-vertical .canvas-wrap {
   width: auto;
   height: min(72vh, 760px);
   max-width: 100%;

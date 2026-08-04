@@ -63,6 +63,17 @@ const stitchTemplates = {
     slotClass: "wide",
     badge: "等高拼接",
   },
+  vertical: {
+    name: "两张上下拼接",
+    note: "按原图比例等宽上下拼接，不预设成品比例。",
+    count: 2,
+    cols: 1,
+    rows: 2,
+    width: 900,
+    height: 1600,
+    slotClass: "wide",
+    badge: "等宽拼接",
+  },
   four: {
     name: "四张 3:4 拼接",
     note: "上面两张，下面两张，成品仍为 3:4。",
@@ -125,10 +136,40 @@ const defaultTwoLayout = {
   ],
 };
 
+const defaultVerticalLayout = {
+  width: 900,
+  height: 1600,
+  rects: [
+    { x: 0, y: 0, width: 900, height: 800 },
+    { x: 0, y: 800, width: 900, height: 800 },
+  ],
+  imageRects: [
+    { x: 0, y: 0, width: 900, height: 800 },
+    { x: 0, y: 800, width: 900, height: 800 },
+  ],
+  views: [
+    { scale: 1, offsetX: 0, offsetY: 0 },
+    { scale: 1, offsetX: 0, offsetY: 0 },
+  ],
+};
+
 const resizeEdges = ["top", "right", "bottom", "left"];
+const adjustableTemplateKeys = ["two", "vertical"];
 
 function clampNumber(value, min, max = Number.POSITIVE_INFINITY) {
   return Math.min(max, Math.max(min, value));
+}
+
+function isAdjustableTemplate(templateKey) {
+  return adjustableTemplateKeys.includes(templateKey);
+}
+
+function getStitchOrientation(templateKey) {
+  return templateKey === "vertical" ? "vertical" : "horizontal";
+}
+
+function getDefaultLayout(templateKey) {
+  return templateKey === "vertical" ? defaultVerticalLayout : defaultTwoLayout;
 }
 
 function emptyImagesByTemplate() {
@@ -207,7 +248,7 @@ function loadImageFromFile(file) {
   });
 }
 
-function pickBaseImage(images) {
+function pickBaseImage(images, orientation = "horizontal") {
   const presentImages = images
     .map((image, index) => ({ image, index }))
     .filter(({ image }) => image);
@@ -215,18 +256,33 @@ function pickBaseImage(images) {
   if (presentImages.length === 0) return null;
 
   return presentImages.reduce((base, item) => {
+    if (orientation === "vertical") {
+      if (item.image.height < base.image.height) return item;
+      if (item.image.height === base.image.height && item.image.width < base.image.width) return item;
+      return base;
+    }
     if (item.image.width < base.image.width) return item;
     if (item.image.width === base.image.width && item.image.height < base.image.height) return item;
     return base;
   });
 }
 
-function getTwoRects(images, gap = 0, sizeOverride = null) {
+function getTwoRects(images, gap = 0, sizeOverride = null, orientation = "horizontal") {
   const safeGap = Math.max(0, Number(gap) || 0);
-  const base = pickBaseImage(images);
-  const baseHeight = sizeOverride?.height || base?.image.height || defaultTwoLayout.height;
+  const base = pickBaseImage(images, orientation);
+  const defaultLayout = orientation === "vertical" ? defaultVerticalLayout : defaultTwoLayout;
   const rects = images.map((image) => {
-    const ratio = image ? image.width / image.height : 800 / defaultTwoLayout.height;
+    const ratio = image ? image.width / image.height : defaultLayout.rects[0].width / defaultLayout.rects[0].height;
+    if (orientation === "vertical") {
+      const baseWidth = sizeOverride?.width || base?.image.width || defaultLayout.width;
+      return {
+        x: 0,
+        y: 0,
+        width: baseWidth,
+        height: Math.max(80, Math.round(baseWidth / ratio)),
+      };
+    }
+    const baseHeight = sizeOverride?.height || base?.image.height || defaultLayout.height;
     return {
       x: 0,
       y: 0,
@@ -236,26 +292,49 @@ function getTwoRects(images, gap = 0, sizeOverride = null) {
   });
 
   if (sizeOverride) {
-    const totalWidth = rects.reduce((total, rect) => total + rect.width, 0) + safeGap;
-    const scale = sizeOverride.width / Math.max(1, totalWidth);
-    rects.forEach((rect) => {
-      rect.width = Math.max(80, Math.round(rect.width * scale));
-      rect.height = sizeOverride.height;
-    });
+    if (orientation === "vertical") {
+      const totalHeight = rects.reduce((total, rect) => total + rect.height, 0) + safeGap;
+      const scale = sizeOverride.height / Math.max(1, totalHeight);
+      rects.forEach((rect) => {
+        rect.width = sizeOverride.width;
+        rect.height = Math.max(80, Math.round(rect.height * scale));
+      });
+    } else {
+      const totalWidth = rects.reduce((total, rect) => total + rect.width, 0) + safeGap;
+      const scale = sizeOverride.width / Math.max(1, totalWidth);
+      rects.forEach((rect) => {
+        rect.width = Math.max(80, Math.round(rect.width * scale));
+        rect.height = sizeOverride.height;
+      });
+    }
   }
 
   rects[0].x = 0;
-  rects[1].x = rects[0].width + safeGap;
+  rects[0].y = 0;
+  if (orientation === "vertical") {
+    rects[1].x = 0;
+    rects[1].y = rects[0].height + safeGap;
+  } else {
+    rects[1].x = rects[0].width + safeGap;
+    rects[1].y = 0;
+  }
   return rects;
 }
 
-function createTwoLayout(images = [], gap = 0, views = defaultTwoLayout.views, sizeOverride = null) {
-  const rects = getTwoRects(images, gap, sizeOverride);
+function createTwoLayout(images = [], gap = 0, views = defaultTwoLayout.views, sizeOverride = null, orientation = "horizontal") {
+  const rects = getTwoRects(images, gap, sizeOverride, orientation);
   const safeGap = Math.max(0, Number(gap) || 0);
+  const defaultLayout = orientation === "vertical" ? defaultVerticalLayout : defaultTwoLayout;
+  const width = orientation === "vertical"
+    ? rects[0]?.width || defaultLayout.width
+    : rects.reduce((total, rect) => total + rect.width, 0) + safeGap;
+  const height = orientation === "vertical"
+    ? rects.reduce((total, rect) => total + rect.height, 0) + safeGap
+    : rects[0]?.height || defaultLayout.height;
 
   return {
-    width: sizeOverride?.width || Math.max(240, rects.reduce((total, rect) => total + rect.width, 0) + safeGap),
-    height: sizeOverride?.height || Math.max(160, rects[0]?.height || defaultTwoLayout.height),
+    width: sizeOverride?.width || Math.max(240, width),
+    height: sizeOverride?.height || Math.max(160, height),
     rects,
     imageRects: rects.map((rect) => ({ ...rect })),
     views: views.map((view) => ({ ...view })),
@@ -275,6 +354,14 @@ function drawImageCropped(ctx, image, rect, imageRect = rect) {
   ctx.clip();
   ctx.drawImage(image, imageRect.x, imageRect.y, imageRect.width, imageRect.height);
   ctx.restore();
+}
+
+function swapItems(items, from, to) {
+  return items.map((item, index) => {
+    if (index === from) return items[to];
+    if (index === to) return items[from];
+    return item;
+  });
 }
 
 function resizeTwoLayout(resizeState, dx, dy) {
@@ -316,6 +403,7 @@ function resizeTwoLayout(resizeState, dx, dy) {
 function cropImageRect(layout, resizeState, dx, dy) {
   const minSize = 80;
   const safeGap = Math.max(0, Number(resizeState.gap) || 0);
+  const orientation = resizeState.orientation || "horizontal";
   const rect = layout.rects[resizeState.index];
   const imageRect = layout.imageRects[resizeState.index];
   if (!rect) return layout;
@@ -356,23 +444,28 @@ function cropImageRect(layout, resizeState, dx, dy) {
     );
   }
 
-  layout.rects[0].x = 0;
-  layout.rects[1].x = layout.rects[0].width + safeGap;
-  const minY = Math.min(...layout.rects.map((item) => item.y));
-  layout.rects = layout.rects.map((item) => ({ ...item, y: item.y - minY }));
+  if (orientation === "vertical") {
+    layout.rects[0].y = 0;
+    layout.rects[1].y = layout.rects[0].height + safeGap;
+    const minX = Math.min(...layout.rects.map((item) => item.x));
+    layout.rects = layout.rects.map((item) => ({ ...item, x: item.x - minX }));
+  } else {
+    layout.rects[0].x = 0;
+    layout.rects[1].x = layout.rects[0].width + safeGap;
+    const minY = Math.min(...layout.rects.map((item) => item.y));
+    layout.rects = layout.rects.map((item) => ({ ...item, y: item.y - minY }));
+  }
   layout.imageRects = layout.imageRects.map((item, itemIndex) => ({
     ...item,
     x: layout.rects[itemIndex].x - cropOffsets[itemIndex].left,
     y: layout.rects[itemIndex].y - cropOffsets[itemIndex].top,
   }));
-  layout.width = Math.max(
-    240,
-    Math.round(layout.rects[0].width + layout.rects[1].width + safeGap),
-  );
-  layout.height = Math.max(
-    160,
-    Math.round(Math.max(...layout.rects.map((item) => item.y + item.height))),
-  );
+  layout.width = orientation === "vertical"
+    ? Math.max(240, Math.round(Math.max(...layout.rects.map((item) => item.x + item.width))))
+    : Math.max(240, Math.round(layout.rects[0].width + layout.rects[1].width + safeGap));
+  layout.height = orientation === "vertical"
+    ? Math.max(160, Math.round(layout.rects[0].height + layout.rects[1].height + safeGap))
+    : Math.max(160, Math.round(Math.max(...layout.rects.map((item) => item.y + item.height))));
 
   return layout;
 }
@@ -419,7 +512,7 @@ function drawImageFit(ctx, image, x, y, width, height, fit) {
   ctx.restore();
 }
 
-function CopyFormatter({ showToast }) {
+function CopyFormatter({ active, showToast }) {
   const [input, setInput] = useState(sampleText);
   const output = useMemo(() => convertText(input), [input]);
 
@@ -433,7 +526,7 @@ function CopyFormatter({ showToast }) {
   };
 
   return (
-    <section className="tool-view active">
+    <section className={`tool-view ${active ? "active" : ""}`} hidden={!active}>
       <div className="tool-grid" aria-label="转换工具">
         <article className="panel input-panel">
           <div className="panel-header">
@@ -489,7 +582,7 @@ function CopyFormatter({ showToast }) {
   );
 }
 
-function PosterComposer({ showToast }) {
+function PosterComposer({ active, showToast }) {
   const canvasRef = useRef(null);
   const previewWrapRef = useRef(null);
   const resizeRef = useRef(null);
@@ -501,17 +594,32 @@ function PosterComposer({ showToast }) {
   const [format, setFormat] = useState(savedState.format);
   const [watermark, setWatermark] = useState(savedState.watermark);
   const [headline, setHeadline] = useState(savedState.headline);
-  const [twoLayout, setTwoLayout] = useState(defaultTwoLayout);
+  const [pairLayouts, setPairLayouts] = useState({
+    two: defaultTwoLayout,
+    vertical: defaultVerticalLayout,
+  });
   const [downloadHref, setDownloadHref] = useState("#");
   const template = stitchTemplates[templateKey];
   const images = imagesByTemplate[templateKey] || Array(template.count).fill(null);
+  const orientation = getStitchOrientation(templateKey);
   const activeLayout = useMemo(() => (
-    templateKey === "two" ? twoLayout : {
+    isAdjustableTemplate(templateKey) ? pairLayouts[templateKey] : {
       width: template.width,
       height: template.height,
       rects: [],
     }
-  ), [template.height, template.width, templateKey, twoLayout]);
+  ), [pairLayouts, template.height, template.width, templateKey]);
+
+  const updatePairLayout = useCallback((updater, key = templateKey) => {
+    setPairLayouts((current) => {
+      const previous = current[key] || getDefaultLayout(key);
+      const nextLayout = typeof updater === "function" ? updater(previous) : updater;
+      return {
+        ...current,
+        [key]: nextLayout,
+      };
+    });
+  }, [templateKey]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -540,21 +648,21 @@ function PosterComposer({ showToast }) {
       ...current,
       [templateKey]: Array(template.count).fill(null),
     }));
-    if (templateKey === "two") setTwoLayout(defaultTwoLayout);
+    if (isAdjustableTemplate(templateKey)) updatePairLayout(getDefaultLayout(templateKey));
     setActiveSlot(0);
     showToast("当前模板图片已清空");
   };
 
   const resetTwoLayout = useCallback(() => {
-    setTwoLayout(createTwoLayout(images, gap));
-    showToast("已恢复等高横向拼接");
-  }, [gap, images, showToast]);
+    updatePairLayout(createTwoLayout(images, gap, getDefaultLayout(templateKey).views, null, orientation));
+    showToast(templateKey === "vertical" ? "已恢复等宽上下拼接" : "已恢复等高横向拼接");
+  }, [gap, images, orientation, showToast, templateKey, updatePairLayout]);
 
   const updateGap = useCallback((value) => {
     setGap(value);
-    if (templateKey !== "two") return;
+    if (!isAdjustableTemplate(templateKey)) return;
 
-    setTwoLayout((current) => {
+    updatePairLayout((current) => {
       const safeGap = Math.max(0, Number(value) || 0);
       const rects = current.rects.map((rect) => ({ ...rect }));
       const imageRects = current.imageRects.map((rect) => ({ ...rect }));
@@ -562,19 +670,31 @@ function PosterComposer({ showToast }) {
         left: rect.x - imageRects[index].x,
         top: rect.y - imageRects[index].y,
       }));
-      rects[0].x = 0;
-      rects[1].x = rects[0].width + safeGap;
-      imageRects[0].x = rects[0].x - cropOffsets[0].left;
-      imageRects[1].x = rects[1].x - cropOffsets[1].left;
+      if (orientation === "vertical") {
+        rects[0].y = 0;
+        rects[1].y = rects[0].height + safeGap;
+        imageRects[0].y = rects[0].y - cropOffsets[0].top;
+        imageRects[1].y = rects[1].y - cropOffsets[1].top;
+      } else {
+        rects[0].x = 0;
+        rects[1].x = rects[0].width + safeGap;
+        imageRects[0].x = rects[0].x - cropOffsets[0].left;
+        imageRects[1].x = rects[1].x - cropOffsets[1].left;
+      }
 
       return {
         ...current,
         imageRects,
         rects,
-        width: Math.max(240, Math.round(rects[0].width + rects[1].width + safeGap)),
+        width: orientation === "vertical"
+          ? Math.max(240, Math.round(Math.max(...rects.map((rect) => rect.x + rect.width))))
+          : Math.max(240, Math.round(rects[0].width + rects[1].width + safeGap)),
+        height: orientation === "vertical"
+          ? Math.max(160, Math.round(rects[0].height + rects[1].height + safeGap))
+          : current.height,
       };
     });
-  }, [templateKey]);
+  }, [orientation, templateKey, updatePairLayout]);
 
   const applyImage = async (file, slot = activeSlot) => {
     const image = await loadImageFromFile(file);
@@ -582,12 +702,14 @@ function PosterComposer({ showToast }) {
       ...current,
       [templateKey]: current[templateKey].map((item, index) => (index === slot ? image : item)),
     }));
-    if (templateKey === "two") {
+    if (isAdjustableTemplate(templateKey)) {
       const nextImages = images.map((item, index) => (index === slot ? image : item));
-      setTwoLayout((current) => createTwoLayout(
+      updatePairLayout((current) => createTwoLayout(
         nextImages,
         gap,
-        current.views.map((view, index) => (index === slot ? defaultTwoLayout.views[index] : view)),
+        current.views.map((view, index) => (index === slot ? getDefaultLayout(templateKey).views[index] : view)),
+        null,
+        orientation,
       ));
     }
     setActiveSlot(Math.min(slot + 1, template.count - 1));
@@ -611,12 +733,14 @@ function PosterComposer({ showToast }) {
         ...current,
         [templateKey]: current[templateKey].map((item, index) => (index === activeSlot ? image : item)),
       }));
-      if (templateKey === "two") {
+      if (isAdjustableTemplate(templateKey)) {
         const nextImages = images.map((item, index) => (index === activeSlot ? image : item));
-        setTwoLayout((current) => createTwoLayout(
+        updatePairLayout((current) => createTwoLayout(
           nextImages,
           gap,
-          current.views.map((view, index) => (index === activeSlot ? defaultTwoLayout.views[index] : view)),
+          current.views.map((view, index) => (index === activeSlot ? getDefaultLayout(templateKey).views[index] : view)),
+          null,
+          orientation,
         ));
       }
       setActiveSlot(Math.min(activeSlot + 1, template.count - 1));
@@ -625,7 +749,7 @@ function PosterComposer({ showToast }) {
 
     document.addEventListener("paste", handlePaste);
     return () => document.removeEventListener("paste", handlePaste);
-  }, [activeSlot, gap, images, showToast, template.count, templateKey]);
+  }, [activeSlot, gap, images, orientation, showToast, template.count, templateKey, updatePairLayout]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -657,7 +781,7 @@ function PosterComposer({ showToast }) {
     const cellWidth = (canvas.width - safeGap * (template.cols - 1)) / template.cols;
     const cellHeight = (canvas.height - safeGap * (template.rows - 1)) / template.rows;
 
-    if (templateKey === "two") {
+    if (isAdjustableTemplate(templateKey)) {
       activeLayout.rects.forEach((rect, index) => {
         drawImageCropped(ctx, images[index], rect, activeLayout.imageRects[index]);
       });
@@ -674,9 +798,9 @@ function PosterComposer({ showToast }) {
     if (watermark.enabled) {
       const lines = [watermark.line1.trim(), watermark.line2.trim(), watermark.line3.trim()];
       if (lines.some(Boolean)) {
-        const size = Math.max(10, Number(watermark.size) || 28);
+        const size = defaultWatermark.size;
         const opacity = Math.max(0, Math.min(1, (Number(watermark.opacity) || 30) / 100));
-        const groupGap = Math.max(80, Number(watermark.groupGap) || 180);
+        const groupGap = defaultWatermark.groupGap;
         const lineHeight = size * 1.05;
         const watermarkHeight = lineHeight * 3;
         const y = template.rows > 1
@@ -710,7 +834,7 @@ function PosterComposer({ showToast }) {
         ctx.save();
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
-        ctx.font = `900 ${size}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+        ctx.font = `900 ${size}px "Heiti SC", "SimHei", "PingFang SC", "Microsoft YaHei", sans-serif`;
         ctx.lineJoin = "round";
         ctx.miterLimit = 2;
         ctx.strokeStyle = "#111111";
@@ -738,7 +862,14 @@ function PosterComposer({ showToast }) {
       const bounds = wrap.getBoundingClientRect();
       const dx = (event.clientX - resizeState.startX) * (resizeState.layout.width / bounds.width);
       const dy = (event.clientY - resizeState.startY) * (resizeState.layout.height / bounds.height);
-      setTwoLayout(() => resizeTwoLayout(resizeState, dx, dy));
+      if (resizeState.type === "headline") {
+        setHeadline((current) => ({
+          ...current,
+          size: Math.round(clampNumber(resizeState.startSize + dx * 0.45, 24, 220)),
+        }));
+        return;
+      }
+      updatePairLayout(() => resizeTwoLayout(resizeState, dx, dy), resizeState.templateKey);
     };
 
     const handlePointerUp = () => {
@@ -751,12 +882,22 @@ function PosterComposer({ showToast }) {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, []);
+  }, [updatePairLayout]);
 
   const beginResize = (event, type, edge, index = null) => {
-    if (templateKey !== "two") return;
+    if (!isAdjustableTemplate(templateKey) && type !== "headline") return;
     event.preventDefault();
     event.stopPropagation();
+    if (type === "headline") {
+      resizeRef.current = {
+        layout: activeLayout,
+        startSize: Number(headline.size) || defaultHeadline.size,
+        startX: event.clientX,
+        startY: event.clientY,
+        type,
+      };
+      return;
+    }
     const rect = index === null ? null : activeLayout.rects[index];
     const view = index === null ? null : activeLayout.views[index];
     resizeRef.current = {
@@ -764,9 +905,11 @@ function PosterComposer({ showToast }) {
       gap,
       images,
       index,
+      orientation,
       rect,
       startX: event.clientX,
       startY: event.clientY,
+      templateKey,
       layout: {
         ...activeLayout,
         views: activeLayout.views.map((item) => ({ ...item })),
@@ -808,8 +951,30 @@ function PosterComposer({ showToast }) {
 
   const handleDrop = async (event, slot) => {
     event.preventDefault();
+    const fromSlot = Number(event.dataTransfer.getData("text/x-image-slot"));
+    if (Number.isInteger(fromSlot) && fromSlot >= 0 && fromSlot !== slot) {
+      setImagesByTemplate((current) => {
+        const nextImages = swapItems(current[templateKey], fromSlot, slot);
+        if (isAdjustableTemplate(templateKey)) {
+          updatePairLayout((layout) => createTwoLayout(nextImages, gap, layout.views, null, orientation));
+        }
+        return {
+          ...current,
+          [templateKey]: nextImages,
+        };
+      });
+      setActiveSlot(slot);
+      showToast(`图 ${fromSlot + 1} 和图 ${slot + 1} 已调换`);
+      return;
+    }
     const file = event.dataTransfer.files?.[0];
     if (file) await applyImage(file, slot);
+  };
+
+  const handleSlotDragStart = (event, slot) => {
+    if (!images[slot]) return;
+    event.dataTransfer.setData("text/x-image-slot", String(slot));
+    event.dataTransfer.effectAllowed = "move";
   };
 
   const handleSlotKeyDown = (event, slot) => {
@@ -821,7 +986,7 @@ function PosterComposer({ showToast }) {
   };
 
   return (
-    <section className="tool-view active">
+    <section className={`tool-view ${active ? "active" : ""}`} hidden={!active}>
       <div className="poster-layout">
         <aside className="poster-controls">
           <section className="control-section">
@@ -853,8 +1018,10 @@ function PosterComposer({ showToast }) {
               {images.map((image, index) => (
                 <div
                   className={`image-slot ${template.slotClass} ${activeSlot === index ? "active" : ""}`}
+                  draggable={Boolean(image)}
                   key={index}
                   onClick={() => setActiveSlot(index)}
+                  onDragStart={(event) => handleSlotDragStart(event, index)}
                   onFocus={() => setActiveSlot(index)}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={(event) => handleDrop(event, index)}
@@ -894,12 +1061,12 @@ function PosterComposer({ showToast }) {
                 </select>
               </label>
             </div>
-            {templateKey === "two" && (
+            {isAdjustableTemplate(templateKey) && (
               <button className="ghost-button compact-button" type="button" onClick={() => resetTwoLayout()}>
-                恢复等高拼接
+                {templateKey === "vertical" ? "恢复等宽拼接" : "恢复等高拼接"}
               </button>
             )}
-            <p className="small-note">{templateKey === "two" ? "两张图按原比例等高横向拼接；拖单图边线只裁切不拉伸。" : "图片会按每个格子的比例居中裁剪，所有处理都在浏览器本地完成。"}</p>
+            <p className="small-note">{isAdjustableTemplate(templateKey) ? `${templateKey === "vertical" ? "两张图按原比例等宽上下拼接" : "两张图按原比例等高横向拼接"}；拖单图或成品四边只裁切不拉伸。` : "图片会按每个格子的比例居中裁剪，所有处理都在浏览器本地完成。"}</p>
           </ControlSection>
 
           <ControlSection title="水印">
@@ -929,13 +1096,6 @@ function PosterComposer({ showToast }) {
               onChange={(value) => setWatermark((current) => ({ ...current, line3: value }))}
             />
             <div className="field-grid">
-              <NumberField
-                label="字号"
-                value={watermark.size}
-                onChange={(value) => setWatermark((current) => ({ ...current, size: value }))}
-                min="10"
-                max="80"
-              />
               <label>
                 透明度
                 <input
@@ -946,13 +1106,6 @@ function PosterComposer({ showToast }) {
                   value={watermark.opacity}
                 />
               </label>
-              <NumberField
-                label="组间距"
-                value={watermark.groupGap}
-                onChange={(value) => setWatermark((current) => ({ ...current, groupGap: value }))}
-                min="80"
-                max="360"
-              />
               <ColorField
                 label="颜色"
                 value={watermark.color}
@@ -983,19 +1136,12 @@ function PosterComposer({ showToast }) {
                 onChange={(value) => setHeadline((current) => ({ ...current, line2: value }))}
               />
             </div>
-            <NumberField
-              label="字号"
-              value={headline.size}
-              onChange={(value) => setHeadline((current) => ({ ...current, size: value }))}
-              min="24"
-              max="180"
-            />
             <ColorField
               label="文字颜色"
               value={headline.color}
               onChange={(value) => setHeadline((current) => ({ ...current, color: value }))}
             />
-            <p className="small-note">花字横向居中，加粗并带黑色描边，可随时关闭。</p>
+            <p className="small-note">花字为加粗黑体并带黑色描边；打开后在预览中左右拖动“字”手柄调整大小。</p>
           </ControlSection>
 
           <div className="poster-actions">
@@ -1011,12 +1157,12 @@ function PosterComposer({ showToast }) {
             <span className="preview-badge">{template.badge}</span>
           </div>
           <div
-            className={`canvas-wrap ${templateKey === "two" ? "resizable" : ""}`}
+            className={`canvas-wrap ${isAdjustableTemplate(templateKey) ? "resizable" : ""}`}
             ref={previewWrapRef}
             style={{ aspectRatio: `${activeLayout.width} / ${activeLayout.height}` }}
           >
             <canvas ref={canvasRef} width={activeLayout.width} height={activeLayout.height} aria-label="成品预览" />
-            {templateKey === "two" && (
+            {isAdjustableTemplate(templateKey) && (
               <>
                 <div className="canvas-resize-layer" aria-hidden="true">
                   {resizeEdges.map((edge) => (
@@ -1050,6 +1196,16 @@ function PosterComposer({ showToast }) {
                   </div>
                 ))}
               </>
+            )}
+            {headline.enabled && (
+              <button
+                aria-label="拖动调整花字大小"
+                className="headline-size-handle"
+                onPointerDown={(event) => beginResize(event, "headline", "right")}
+                type="button"
+              >
+                字
+              </button>
             )}
           </div>
         </div>
@@ -1126,11 +1282,8 @@ export default function App() {
         </div>
       </section>
 
-      {mode === "copy" ? (
-        <CopyFormatter showToast={showToast} />
-      ) : (
-        <PosterComposer showToast={showToast} />
-      )}
+      <CopyFormatter active={mode === "copy"} showToast={showToast} />
+      <PosterComposer active={mode === "poster"} showToast={showToast} />
 
       {toast && <div className="toast">{toast}</div>}
     </main>
